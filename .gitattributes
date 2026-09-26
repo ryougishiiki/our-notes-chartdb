@@ -1,0 +1,5 @@
+# Keep everything LF. CI runs `bash ci/run.sh` on Linux; CRLF would break it.
+* text=auto eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.py text eol=lf
