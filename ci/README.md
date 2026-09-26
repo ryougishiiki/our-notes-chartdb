@@ -1,58 +1,40 @@
-# Activate the CI workflow (no token needed)
+# Activate CI (one click, one paste — no token, no file name typing)
 
-GitHub refuses to create/update `.github/workflows/*` from a token without the
+GitHub refuses to create `.github/workflows/*` from a token without the
 `workflow` scope. This repository was published with a `repo`-only token, so the
-workflow file currently lives here at `ci/chartdb.yml`.
+workflow template lives at `ci/chartdb.yml`.
 
-You do **not** need a new token or any command line. GitHub's web editor is an
-interactive session and is allowed to create workflow files.
+**All build logic is in `ci/run.sh`**, so the workflow itself is only ~25 lines
+and can be created from the browser (an interactive session is allowed to create
+workflow files).
 
-## Recommended: move the file in the browser (3 clicks)
+## Steps
 
-1. Open
-   <https://github.com/ryougishiiki/our-notes-chartdb/edit/main/ci/chartdb.yml>
-2. Click the **file name box** at the top (it shows `ci/chartdb.yml`) and change
-   it to exactly:
+1. Open <https://github.com/ryougishiiki/our-notes-chartdb/actions>
+2. Click the small link **"set up a workflow yourself"** (top right).
+   The editor opens with the path `.github/workflows/main.yml` already filled in.
+3. Select everything in the editor (Ctrl+A) and delete it.
+4. Paste the contents of [`ci/chartdb.yml`](chartdb.yml).
+5. Click **Commit changes…** → **Commit changes**.
 
-   ```
-   .github/workflows/chartdb.yml
-   ```
+Then open the **Actions** tab, choose **chartdb** → **Run workflow**.
 
-3. Click **Commit changes…** → **Commit changes**.
+Direct alternative (path pre-filled, then paste + commit):
+<https://github.com/ryougishiiki/our-notes-chartdb/new/main?filename=.github%2Fworkflows%2Fchartdb.yml>
 
-That creates the workflow at its active path. (If GitHub keeps `ci/chartdb.yml`
-behind, that is harmless; you can delete it with the 🗑 icon on the file page.)
+## What runs
 
-## Then run it once
-
-Open <https://github.com/ryougishiiki/our-notes-chartdb/actions> and click
-**chartdb → Run workflow → Run workflow**.
-
-The workflow will build the whole chart DB, run every gate, and publish a
-release tagged `chartdb-v<N>`. After that it also runs nightly at 03:17 UTC.
-
-## Alternative: grant the scope and push
-
-```sh
-gh auth refresh -s workflow      # browser confirmation, one-time
-mkdir -p .github/workflows
-git mv ci/chartdb.yml .github/workflows/chartdb.yml
-git commit -m "ci: activate chartdb workflow"
-git push
-```
-
-## What the workflow does
+`ci/run.sh` (all logic, reproducible locally):
 
 ```
-checkout -> python 3.13 + node 20 -> pip install -r requirements.txt + npm ci
-         -> node tools/oracle/build.mjs        (pins the external parser)
-         -> restore incremental state          (.chartdb-cache)
-         -> python -m chartdb build --all --out dist
-         -> python tools/ci_gate.py dist       (hard gates; blocks on failure)
-         -> upload artifact
-         -> tag chartdb-v<N> + publish release (manifest.json + *.tar.zst)
-         -> save incremental state
+pip install -r requirements.txt
+npm ci
+node tools/oracle/build.mjs          # pinned external parser
+python -m chartdb build --all        # -> dist/
+python tools/ci_gate.py dist         # hard gates; writes dist/gate.json
+gh release create chartdb-v<N>       # only inside Actions, only if changed
 ```
 
 No secrets are required: the game CDN, the Addressables catalog and the public
-Master mirror are all unauthenticated.
+Master mirror are all unauthenticated. `GH_TOKEN` is the automatic
+`${{ github.token }}` with `contents: write`.

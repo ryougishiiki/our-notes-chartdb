@@ -49,6 +49,19 @@ def main() -> int:
         incremental.get(key)
         for key in ("newCharts", "changedCharts", "removedCharts")
     )
+    (dist / "gate.json").write_text(
+        json.dumps(
+            {
+                "releaseReady": True,
+                "hasChanges": changed,
+                "databaseVersion": manifest.get("databaseVersion"),
+                "packFile": (manifest.get("pack") or {}).get("file"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     github_env = os.environ.get("GITHUB_ENV")
     if github_env:
         with open(github_env, "a", encoding="utf-8") as handle:
