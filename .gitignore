@@ -1,0 +1,8 @@
+.cache/
+dist/
+dist-*/
+.vendor/
+node_modules/
+tools/oracle/oracle.cjs
+__pycache__/
+*.pyc

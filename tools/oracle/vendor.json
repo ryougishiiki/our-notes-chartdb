@@ -1,0 +1,14 @@
+{
+  "repositories": [
+    {
+      "name": "cassiopeia",
+      "url": "https://github.com/haneoka-gakuen/cassiopeia.git",
+      "commit": "204d8d53475442905c7998a704bc2380ecb05972"
+    },
+    {
+      "name": "cassiopeia-plugin-our-notes",
+      "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git",
+      "commit": "46ac13fd263ead3e2dbc16825a1ab253d6690ea4"
+    }
+  ]
+}

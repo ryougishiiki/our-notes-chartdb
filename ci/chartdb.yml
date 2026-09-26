@@ -1,0 +1,107 @@
+name: chartdb
+
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: resource server id (see config/servers.json)
+        default: intl
+      force_release:
+        description: publish even when nothing changed
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 3 * * *"
+
+concurrency:
+  group: chartdb-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          npm ci
+
+      - name: Build correctness oracle (pinned external parser)
+        run: node tools/oracle/build.mjs
+
+      - name: Restore incremental state
+        uses: actions/cache@v4
+        with:
+          path: .chartdb-cache
+          key: chartdb-${{ inputs.server || 'intl' }}-${{ github.run_id }}
+          restore-keys: |
+            chartdb-${{ inputs.server || 'intl' }}-
+
+      - name: Build chart DB
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m chartdb build \
+            --server "${{ inputs.server || 'intl' }}" \
+            --all \
+            --out dist \
+            --workdir .chartdb-cache
+
+      - name: Release gate
+        id: gate
+        env:
+          PYTHONPATH: src
+        run: python tools/ci_gate.py dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chartdb
+          path: dist
+
+      - name: Compute release tag
+        id: tag
+        if: env.HAS_CHANGES == '1' || inputs.force_release
+        run: |
+          latest=$(git ls-remote --tags origin 'chartdb-v*' \
+            | sed -E 's#.*refs/tags/chartdb-v([0-9]+)$#\1#' \
+            | sort -n | tail -1)
+          next=$(( ${latest:-0} + 1 ))
+          echo "tag=chartdb-v${next}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        if: env.HAS_CHANGES == '1' || inputs.force_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          generate_release_notes: false
+          body: |
+            Chart DB ${{ env.DB_VERSION }}
+
+            Compatible manifest fields: protocolVersion / chartSchemaVersion.
+            Source revision and pack sha256 are recorded in `manifest.json`.
+            Normalized, source-derived chart data only — no game assets.
+          files: |
+            dist/manifest.json
+            dist/*.tar.zst
+
+      # Persist the new source state only after a successful publish.
+      - name: Save incremental state
+        if: always() && env.HAS_CHANGES == '1'
+        uses: actions/cache/save@v4
+        with:
+          path: .chartdb-cache
+          key: chartdb-${{ inputs.server || 'intl' }}-${{ github.run_id }}

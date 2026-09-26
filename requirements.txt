@@ -1,0 +1,4 @@
+UnityPy==1.25.3
+pycryptodome>=3.20
+py3rijndael>=1.5.0
+zstandard>=0.22

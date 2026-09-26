@@ -1,0 +1,9 @@
+{
+  "name": "chartdb-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Build tooling for the Our Notes chart database producer (oracle bundling).",
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
