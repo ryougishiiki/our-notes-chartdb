@@ -170,7 +170,14 @@ snapshot catches up.
 
 ## CI
 
-`.github/workflows/chartdb.yml`: `workflow_dispatch` + nightly `schedule`.
+> **Status:** GitHub rejects `.github/workflows/*` from a token without the
+> `workflow` scope. This repository was published with a `repo`-only token, so
+> the workflow currently lives at [`ci/chartdb.yml`](ci/chartdb.yml). See
+> [`ci/README.md`](ci/README.md) to activate it (2 commands).
+> Until then, releases are produced by running the pipeline locally and tagging
+> `chartdb-v<N>`.
+
+`.github/workflows/chartdb.yml` (activation target): `workflow_dispatch` + nightly `schedule`.
 
 ```
 build (all charts) -> hard gates -> release gate -> artifact -> release
