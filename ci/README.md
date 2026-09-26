@@ -1,12 +1,17 @@
-# Activate CI (one click, one paste — no token, no file name typing)
+# CI (active)
 
-GitHub refuses to create `.github/workflows/*` from a token without the
-`workflow` scope. This repository was published with a `repo`-only token, so the
-workflow template lives at `ci/chartdb.yml`.
+`.github/workflows/chartdb.yml` is live: nightly `schedule` (03:17 UTC) plus
+`workflow_dispatch`.
 
-**All build logic is in `ci/run.sh`**, so the workflow itself is only ~25 lines
-and can be created from the browser (an interactive session is allowed to create
-workflow files).
+**All build logic is in `ci/run.sh`**, so the workflow is a ~25 line wrapper.
+Reproduce the whole pipeline locally with:
+
+```sh
+bash ci/run.sh          # build + gates only; publishing requires GitHub Actions
+```
+
+`ci/chartdb.yml` is kept as the template in case the workflow file ever has to
+be recreated from the browser.
 
 ## Steps
 

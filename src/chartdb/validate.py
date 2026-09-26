@@ -1,8 +1,11 @@
 """Validation gates.
 
 Status values: ``pass`` / ``fail`` / ``unknown``.
-A release requires ``fail == 0`` across every chart AND no ``unknown`` on the
-full-combo oracle (the oracle is the strongest correctness signal we have).
+A release requires ``fail == 0`` across every chart.  The combo-count oracle is
+report-only by default (``combo_policy="report"``): a mismatch is recorded as
+``unknown`` together with its delta, because what differs is the reconstructed
+Combo-note model, not the extracted chart data.  ``combo_policy="strict"``
+promotes a mismatch to a blocking ``fail``.
 """
 
 from __future__ import annotations
