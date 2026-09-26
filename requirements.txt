@@ -1,4 +1,6 @@
+# Pinned to the versions Haneoka uses (see haneoka/scripts/requirements.txt).
+# NOTE: py3rijndael has no 1.x release - the only versions are 0.1.x .. 0.3.3.
 UnityPy==1.25.3
-pycryptodome>=3.20
-py3rijndael>=1.5.0
+pycryptodome==3.23.0
+py3rijndael==0.3.3
 zstandard>=0.22
