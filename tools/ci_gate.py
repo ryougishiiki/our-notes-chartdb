@@ -7,6 +7,8 @@ import os
 import sys
 from pathlib import Path
 
+from chartdb.state import has_changes
+
 
 def main() -> int:
     dist = Path(sys.argv[1] if len(sys.argv) > 1 else "dist")
@@ -19,12 +21,31 @@ def main() -> int:
     failed = validation.get("failedCharts") or []
     complete = bool(validation.get("completeForMasterSnapshot"))
     incremental = manifest.get("incremental", {})
+    source = manifest.get("source", {})
 
     print("---- chartdb report ----")
     print("databaseVersion:", manifest.get("databaseVersion"))
     print("chartSchemaVersion:", manifest.get("chartSchemaVersion"))
     print("chartCount:", manifest.get("chartCount"))
-    print("source:", json.dumps(manifest.get("source", {}), ensure_ascii=False))
+    print("source:", json.dumps(source, ensure_ascii=False))
+    freshness_complete = bool(
+        source.get("catalogVersion")
+        and source.get("catalogVersionSource")
+        and source.get("officialCatalogHash")
+        and source.get("catalogSha256")
+        and source.get("catalogAction") in {"REUSED", "REFRESHED"}
+        and source.get("masterRevision")
+    )
+    if freshness_complete:
+        print(
+            "latest upstream checked: catalogAction={} masterSource={} masterRevision={}".format(
+                source["catalogAction"],
+                source.get("masterSource"),
+                source.get("masterRevision"),
+            )
+        )
+    else:
+        print("GATE FAIL: catalog or Master freshness metadata is incomplete")
     print("catalogAligned:", (manifest.get("coverage") or {}).get("catalogAligned"))
     print("coverage:", json.dumps(manifest.get("coverage", {}), ensure_ascii=False))
     print("incremental:", json.dumps({k: v for k, v in incremental.items() if k.endswith("Count")}))
@@ -39,16 +60,13 @@ def main() -> int:
         )
     )
 
-    if not complete or failed:
+    if not freshness_complete or not complete or failed:
         print(f"GATE FAIL: {len(failed)} chart(s) failed; refusing to publish")
         for entry in failed[:20]:
             print("  -", entry)
         return 1
 
-    changed = any(
-        incremental.get(key)
-        for key in ("newCharts", "changedCharts", "removedCharts")
-    )
+    changed = has_changes(incremental)
     (dist / "gate.json").write_text(
         json.dumps(
             {

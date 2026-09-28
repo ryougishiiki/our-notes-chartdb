@@ -181,8 +181,23 @@ build (all charts) -> hard gates -> release gate -> artifact -> release
 
 * incremental: `.chartdb-cache/state.json` holds `(musicId,difficulty) -> sourceSha256`;
   a release is only published when there are new/changed/removed charts.
+* freshness: each run requests `catalog_<version>.hash`, then reuses or refreshes
+  the catalog by its official hash. The manifest records `officialCatalogHash`
+  separately from our `catalogSha256`; the configured catalog version is logged
+  as `catalogVersionSource=config` because no reliable version discovery source
+  is configured.
+* Master: each run refreshes `/songs` and every `/songs/<id>` detail. A failed or
+  incomplete detail request fails the build rather than looking like removals.
+* bundles: cached payloads are reused only while their catalog identity matches;
+  a new or changed identity triggers a download.
 * atomicity: the release is created only after the whole build + all gates pass.
 * tag: `chartdb-v<N>`; the real source revision is in `manifest.json`.
+* release notes: catalog version/hash, Master revision, new/changed/removed and
+  unchanged counts, chart keys, total charts, and pack SHA-256.
+
+CI installs pinned Python dependencies with up to three attempts, runs the unit
+tests, then builds and validates the database. A clean diff exits successfully
+with `no Chart DB changes detected` and skips Release creation.
 
 ## Legal / scope
 

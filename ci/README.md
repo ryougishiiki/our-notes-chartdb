@@ -32,7 +32,8 @@ Direct alternative (path pre-filled, then paste + commit):
 `ci/run.sh` (all logic, reproducible locally):
 
 ```
-pip install -r requirements.txt
+pip install -r requirements-ci.txt   # build + pinned test dependencies; retried up to 3 times
+python -m pytest tests -q
 npm ci
 node tools/oracle/build.mjs          # pinned external parser
 python -m chartdb build --all        # -> dist/
@@ -40,6 +41,9 @@ python tools/ci_gate.py dist         # hard gates; writes dist/gate.json
 gh release create chartdb-v<N>       # only inside Actions, only if changed
 ```
 
-No secrets are required: the game CDN, the Addressables catalog and the public
-Master mirror are all unauthenticated. `GH_TOKEN` is the automatic
-`${{ github.token }}` with `contents: write`.
+Every build checks the official catalog `.hash` URL before looking at the cached
+catalog binary. It also fetches the latest Master song list and song details.
+Catalog/Master freshness metadata is a hard release gate. No secrets are
+required: the game CDN, the Addressables catalog and the public Master mirror
+are unauthenticated. `GH_TOKEN` is the automatic `${{ github.token }}` with
+`contents: write`.

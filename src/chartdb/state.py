@@ -48,3 +48,11 @@ def diff(old: dict[str, str], new: dict[str, str]) -> dict:
         "changedCount": len(changed),
         "removedCount": len(removed),
     }
+
+
+def has_changes(incremental: dict) -> bool:
+    """Whether the formal chart set or any of its source payloads changed."""
+    return any(
+        bool(incremental.get(key))
+        for key in ("newCharts", "changedCharts", "removedCharts")
+    )

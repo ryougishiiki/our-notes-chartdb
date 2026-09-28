@@ -14,10 +14,9 @@ import tempfile
 from pathlib import Path
 
 from . import __version__
-from .addressables import parse_catalog
+from .cache import cached_bundle_bytes, load_fresh_catalog
 from .config import resolve_server
 from .db import DatabaseBuilder
-from .discover import discover
 from .hashing import canonical_json, sha256_bytes
 from .master import ApkMasterSource, HaneokaMirrorMasterSource
 from .normalize import CHART_SCHEMA_VERSION, build_chart_document
@@ -25,7 +24,6 @@ from .ss import SsError, parse_ss
 from .state import diff, key_of, load_state, save_state
 from .unity import iter_text_assets, load_environment
 from .validate import chart_gates, global_gates, summarize
-from .http import cached_bytes
 
 
 def _oracle_path(explicit: str | None) -> Path | None:
@@ -68,14 +66,16 @@ def cmd_build(args) -> int:
     out.mkdir(parents=True, exist_ok=True)
 
     # 1. Addressables catalog -------------------------------------------------
-    catalog_bytes = cached_bytes(
-        config.catalog_bin_url, work / "catalog" / f"catalog_{config.catalog_version}.bin"
+    fresh_catalog = load_fresh_catalog(
+        config, work / "catalog" / f"catalog_{config.catalog_version}.bin"
     )
-    catalog_hash = sha256_bytes(catalog_bytes)
-    reader = parse_catalog(catalog_bytes, config.remote_root, config.remote_root)
-    discovery = discover(reader)
+    catalog_hash = fresh_catalog.catalog_sha256
+    discovery = fresh_catalog.discovery
     print(
-        f"[catalog] version={config.catalog_version} sha256={catalog_hash[:16]} "
+        f"[catalog] version={config.catalog_version} versionSource=config "
+        f"remoteCatalogHash={fresh_catalog.official_catalog_hash} "
+        f"cachedCatalogHash={fresh_catalog.cached_official_catalog_hash or 'missing'} "
+        f"action={fresh_catalog.action} catalogSha256={catalog_hash} "
         f"chartBundles={discovery.chart_bundle_count} unreferenced={discovery.unreferenced_count}",
         file=sys.stderr,
     )
@@ -91,7 +91,7 @@ def cmd_build(args) -> int:
     refs = list(snapshot.refs)
     print(
         f"[master] source={snapshot.source} authority={snapshot.authority} "
-        f"revision={snapshot.revision[:16]} charts={len(refs)}",
+        f"masterRevision={snapshot.revision} masterCharts={len(refs)}",
         file=sys.stderr,
     )
 
@@ -118,7 +118,9 @@ def cmd_build(args) -> int:
             failures.append({"chart": key, "reason": "master references a chart with no MusicScore bundle"})
             continue
         try:
-            raw = cached_bytes(bundle.remote_url, work / "bundles" / bundle.download_filename)
+            raw = cached_bundle_bytes(
+                bundle, work / "bundles" / bundle.download_filename
+            )
             environment = load_environment(raw, bundle.download_filename, config)
             assets = list(iter_text_assets(environment))
             asset = next(
@@ -206,6 +208,12 @@ def cmd_build(args) -> int:
         "catalogNamedWithoutMasterList": catalog_named_without_master,
         "catalogAligned": len(catalog_named_without_master) == 0,
     }
+    print(
+        f"[discovery] catalogMusicScoreBundles={coverage['catalogMusicScoreBundles']} "
+        f"masterReferenced={coverage['masterReferenced']} "
+        f"catalogNamedWithoutMaster={coverage['catalogNamedWithoutMaster']}",
+        file=sys.stderr,
+    )
 
     validation_meta = {
         # "complete" is only ever about THIS Master snapshot: every chart the
@@ -224,7 +232,11 @@ def cmd_build(args) -> int:
     source_meta = {
         "server": config.id,
         "catalogVersion": config.catalog_version,
-        "catalogHash": catalog_hash,
+        "catalogVersionSource": "config",
+        "officialCatalogHash": fresh_catalog.official_catalog_hash,
+        "cachedOfficialCatalogHash": fresh_catalog.cached_official_catalog_hash,
+        "catalogSha256": catalog_hash,
+        "catalogAction": fresh_catalog.action,
         "remoteRoot": config.remote_root,
         "masterSource": snapshot.source,
         "masterAuthority": snapshot.authority,
@@ -243,6 +255,8 @@ def cmd_build(args) -> int:
         pass
     elif not full_selection:
         print("[state] partial build: incremental state left untouched", file=sys.stderr)
+    elif failures or global_failed:
+        print("[state] validation failed: incremental state left untouched", file=sys.stderr)
     else:
         save_state(work / "state.json", state_charts, catalog_hash)
 

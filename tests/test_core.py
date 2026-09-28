@@ -7,6 +7,7 @@ import json
 from chartdb.addressables import remote_url
 from chartdb.discover import CHART_KEY, MUSIC_SCORE_MARKER
 from chartdb.ss import SsError, parse_ss
+from chartdb.state import diff, has_changes
 from chartdb.timing import TickConverter, BpmEvent, SigEvent
 
 
@@ -73,3 +74,14 @@ def test_ss_rejects_unplaceable_leaf():
     except SsError:
         return
     raise AssertionError("a leaf note without a tick must be rejected")
+
+
+def test_release_gate_skips_when_chart_diff_is_empty():
+    change = diff({"100001/expert": "same"}, {"100001/expert": "same"})
+    assert not has_changes(change)
+
+
+def test_release_gate_publishes_for_new_changed_or_removed_charts():
+    assert has_changes(diff({}, {"100001/expert": "new"}))
+    assert has_changes(diff({"100001/expert": "old"}, {"100001/expert": "changed"}))
+    assert has_changes(diff({"100001/expert": "removed"}, {}))

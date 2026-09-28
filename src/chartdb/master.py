@@ -224,15 +224,16 @@ class HaneokaMirrorMasterSource:
         document = fetch_json(f"{self.base}{self.prefix}/songs")
         if not isinstance(document, dict):
             raise ValueError("mirror songs endpoint did not return an object")
+        if not document:
+            raise ValueError("mirror songs endpoint returned no songs")
         return document
 
-    def _detail_raw(self, key: str) -> dict | None:
-        try:
-            document = fetch_json(f"{self.base}{self.prefix}/songs/{key}")
-        except Exception:
-            return None
+    def _detail_raw(self, key: str) -> dict:
+        document = fetch_json(f"{self.base}{self.prefix}/songs/{key}")
         raw = document.get("raw") if isinstance(document, dict) else None
-        return raw if isinstance(raw, dict) else None
+        if not isinstance(raw, dict):
+            raise ValueError(f"mirror detail endpoint returned no raw Master row for song {key}")
+        return raw
 
     def snapshot(self, music_ids: set[int] | None = None) -> MasterSnapshot:
         from concurrent.futures import ThreadPoolExecutor
@@ -247,10 +248,10 @@ class HaneokaMirrorMasterSource:
                 continue
             selected.append((key, song))
 
-        # The list endpoint omits the MasterLiveMusic row, so the score ids need
-        # one detail request per song.  Fetch concurrently.
-        needs_detail = [key for key, song in selected if not isinstance(song.get("raw"), dict)]
-        details: dict[str, dict | None] = {}
+        # Always refresh every detail row. The list endpoint is a discovery
+        # index, not a durable Master snapshot or cache.
+        needs_detail = [key for key, _song in selected]
+        details: dict[str, dict] = {}
         if needs_detail:
             with ThreadPoolExecutor(max_workers=8) as pool:
                 for key, raw in zip(needs_detail, pool.map(self._detail_raw, needs_detail)):
@@ -263,11 +264,9 @@ class HaneokaMirrorMasterSource:
         titles: dict[int, str] = {}
         for key, song in selected:
             music_id = int(song.get("musicId") or key)
-            raw = song.get("raw")
+            raw = details.get(key)
             if not isinstance(raw, dict):
-                raw = details.get(key)
-            if not isinstance(raw, dict):
-                continue
+                raise ValueError(f"mirror detail snapshot is missing raw Master row for song {key}")
             music_rows.append(raw)
             title = song.get("musicTitle")
             if isinstance(title, list) and title:
