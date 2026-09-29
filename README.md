@@ -170,13 +170,15 @@ snapshot catches up.
 
 ## CI
 
-`.github/workflows/chartdb.yml` is active: `workflow_dispatch` + nightly
-`schedule` at 03:17 UTC. All build logic lives in [`ci/run.sh`](ci/run.sh), so
-the workflow is a thin wrapper and the whole pipeline is reproducible locally
-with `bash ci/run.sh` (it stops before publishing outside Actions).
+`.github/workflows/chartdb.yml` runs on `workflow_dispatch` + nightly
+`schedule` at 03:17 UTC. The build and site generation live in
+[`ci/run.sh`](ci/run.sh), so the validated data and report can be reproduced
+locally with `bash ci/run.sh` (publishing remains Actions-only).
 
 ```
-build (all charts) -> hard gates -> release gate -> artifact -> release
+build (all charts) -> hard gates -> report + release gate
+                    ├─ chart changes -> database Release
+                    └─ successful main build -> GitHub Pages deploy
 ```
 
 * incremental: `.chartdb-cache/state.json` holds `(musicId,difficulty) -> sourceSha256`;
@@ -191,13 +193,29 @@ build (all charts) -> hard gates -> release gate -> artifact -> release
 * bundles: cached payloads are reused only while their catalog identity matches;
   a new or changed identity triggers a download.
 * atomicity: the release is created only after the whole build + all gates pass.
+* Pages: every successful build on `main` deploys the generated statistics
+  site, regardless of whether the incremental gate found changes. The Pages job
+  depends on the build job, not the conditional Release job.
 * tag: `chartdb-v<N>`; the real source revision is in `manifest.json`.
 * release notes: catalog version/hash, Master revision, new/changed/removed and
   unchanged counts, chart keys, total charts, and pack SHA-256.
 
 CI installs pinned Python dependencies with up to three attempts, runs the unit
-tests, then builds and validates the database. A clean diff exits successfully
-with `no Chart DB changes detected` and skips Release creation.
+tests, then builds and validates the database. A clean diff skips Release
+creation but still produces and deploys the current statistics site.
+
+## Statistics site
+
+[`site/index.template.html`](site/index.template.html) is rendered by
+[`tools/build_site.py`](tools/build_site.py) from the same validated `dist/pack`
+used for the database Release. The build writes a self-contained
+`dist/site/index.html` and `dist/site/chartdb_spectra_stats.csv`; the HTML
+embeds the data, so the hosted page does not need a server-side API.
+
+To enable hosting once, open **Settings → Pages → Build and deployment → Source**
+and select **GitHub Actions**. After that, each successful `main` build deploys
+the site, including nightly runs with no database diff. Database Releases
+remain limited to runs with new, changed, or removed charts.
 
 ## Legal / scope
 
