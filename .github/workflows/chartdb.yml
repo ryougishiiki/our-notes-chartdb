@@ -1,26 +1,120 @@
 name: chartdb
+
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
-permissions:
-  contents: write
+
+permissions: {}
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      has_changes: ${{ steps.build.outputs.has_changes }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
       - uses: actions/cache@v4
         with:
           path: .chartdb-cache
           key: chartdb-${{ github.run_id }}
           restore-keys: chartdb-
-      - env:
+
+      - name: Build, validate and render the site
+        id: build
+        run: |
+          bash ci/run.sh
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          gate = json.loads(Path("dist/gate.json").read_text(encoding="utf-8"))
+          print(f"has_changes={str(bool(gate['hasChanges'])).lower()}")
+          PY
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: chartdb-release-files
+          path: |
+            dist/gate.json
+            dist/manifest.json
+            dist/release-notes.md
+            dist/*.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload static site
+        uses: actions/upload-artifact@v4
+        with:
+          name: chartdb-site
+          path: dist/site
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.has_changes == 'true'
+    concurrency:
+      group: chartdb-release
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          name: chartdb-release-files
+          path: dist
+
+      - name: Publish database release
+        env:
           GH_TOKEN: ${{ github.token }}
-        run: bash ci/run.sh
+        run: bash ci/publish_release.sh dist
+
+  pages:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download static site
+        uses: actions/download-artifact@v4
+        with:
+          name: chartdb-site
+          path: site
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
