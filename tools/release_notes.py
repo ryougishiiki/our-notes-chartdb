@@ -27,8 +27,9 @@ def render(manifest: dict) -> str:
     lines = [
         f"Chart DB `{manifest.get('databaseVersion')}` (protocolVersion {manifest.get('protocolVersion')}, chartSchemaVersion {manifest.get('chartSchemaVersion')}).",
         "",
-        f"Catalog version: `{source.get('catalogVersion')}` (source: `{source.get('catalogVersionSource')}`)",
-        f"Catalog hash: `{source.get('officialCatalogHash')}`",
+        f"Catalog version floor: `{source.get('catalogVersionConfiguredFloor')}`",
+        f"Catalog version resolved: `{source.get('catalogVersionResolved')}` (source: `{source.get('catalogVersionSource')}`)",
+        f"Catalog official hash: `{source.get('catalogOfficialHash')}`",
         f"Catalog SHA-256: `{source.get('catalogSha256')}`",
         f"Master revision: `{source.get('masterRevision')}`",
         "",

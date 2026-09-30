@@ -29,9 +29,12 @@ def main() -> int:
     print("chartCount:", manifest.get("chartCount"))
     print("source:", json.dumps(source, ensure_ascii=False))
     freshness_complete = bool(
-        source.get("catalogVersion")
-        and source.get("catalogVersionSource")
-        and source.get("officialCatalogHash")
+        source.get("catalogVersionConfiguredFloor")
+        and source.get("catalogVersionResolved")
+        and source.get("catalogVersion") == source.get("catalogVersionResolved")
+        and source.get("catalogVersionSource") in {"probe", "config"}
+        and source.get("catalogOfficialHash")
+        and source.get("officialCatalogHash") == source.get("catalogOfficialHash")
         and source.get("catalogSha256")
         and source.get("catalogAction") in {"REUSED", "REFRESHED"}
         and source.get("masterRevision")

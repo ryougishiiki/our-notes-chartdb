@@ -39,6 +39,29 @@ def fetch_bytes(url: str, timeout: float = 60.0, retries: int = 5) -> bytes:
     raise HttpError(f"failed to fetch {url}: {last}")
 
 
+def probe_exists(url: str, timeout: float = 60.0, retries: int = 5) -> bool:
+    """Check an object without treating transient or unexpected errors as misses."""
+    last: Exception | None = None
+    for attempt in range(retries):
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": USER_AGENT, "Accept": "*/*", "Cache-Control": "no-cache"}
+            )
+            with urllib.request.urlopen(request, timeout=timeout):
+                return True
+        except urllib.error.HTTPError as error:
+            if error.code in (400, 403, 404):
+                return False
+            last = error
+            if error.code not in (408, 425, 429) and error.code < 500:
+                raise HttpError(f"failed to probe {url}: HTTP {error.code}") from error
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            last = error
+        if attempt + 1 < retries:
+            time.sleep(min(8.0, 1.5 * (attempt + 1)) + random.uniform(0, 0.5))
+    raise HttpError(f"failed to probe after {retries} attempts: {url}: {last}") from last
+
+
 def fetch_json(url: str, timeout: float = 60.0) -> object:
     return json.loads(fetch_bytes(url, timeout=timeout).decode("utf-8"))
 

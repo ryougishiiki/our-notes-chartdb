@@ -11,13 +11,16 @@ import json
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from . import __version__
-from .cache import cached_bundle_bytes, load_fresh_catalog
+from .cache import cached_bundle_bytes, catalog_cache_path, load_fresh_catalog
+from .catalog_version import resolve_catalog_version
 from .config import resolve_server
 from .db import DatabaseBuilder
 from .hashing import canonical_json, sha256_bytes
+from .http import probe_exists
 from .master import ApkMasterSource, HaneokaMirrorMasterSource
 from .normalize import CHART_SCHEMA_VERSION, build_chart_document
 from .ss import SsError, parse_ss
@@ -60,6 +63,17 @@ def _select(refs, args):
 
 def cmd_build(args) -> int:
     config = resolve_server(args.server)
+    configured_floor = config.catalog_version
+    version_resolution = resolve_catalog_version(
+        configured_floor,
+        lambda version: probe_exists(f"{config.remote_root}/catalog_{version}.hash"),
+    )
+    if version_resolution.resolved != configured_floor:
+        print(
+            f"[catalog] advanced {configured_floor} -> {version_resolution.resolved}",
+            file=sys.stderr,
+        )
+    config = replace(config, catalog_version=version_resolution.resolved)
     work = Path(args.workdir)
     work.mkdir(parents=True, exist_ok=True)
     out = Path(args.out)
@@ -67,12 +81,13 @@ def cmd_build(args) -> int:
 
     # 1. Addressables catalog -------------------------------------------------
     fresh_catalog = load_fresh_catalog(
-        config, work / "catalog" / f"catalog_{config.catalog_version}.bin"
+        config, catalog_cache_path(work, version_resolution.resolved)
     )
     catalog_hash = fresh_catalog.catalog_sha256
     discovery = fresh_catalog.discovery
     print(
-        f"[catalog] version={config.catalog_version} versionSource=config "
+        f"[catalog] configuredFloor={configured_floor} resolved={version_resolution.resolved} "
+        f"versionSource={version_resolution.source} probes={version_resolution.probes} "
         f"remoteCatalogHash={fresh_catalog.official_catalog_hash} "
         f"cachedCatalogHash={fresh_catalog.cached_official_catalog_hash or 'missing'} "
         f"action={fresh_catalog.action} catalogSha256={catalog_hash} "
@@ -232,7 +247,10 @@ def cmd_build(args) -> int:
     source_meta = {
         "server": config.id,
         "catalogVersion": config.catalog_version,
-        "catalogVersionSource": "config",
+        "catalogVersionConfiguredFloor": configured_floor,
+        "catalogVersionResolved": config.catalog_version,
+        "catalogVersionSource": version_resolution.source,
+        "catalogOfficialHash": fresh_catalog.official_catalog_hash,
         "officialCatalogHash": fresh_catalog.official_catalog_hash,
         "cachedOfficialCatalogHash": fresh_catalog.cached_official_catalog_hash,
         "catalogSha256": catalog_hash,

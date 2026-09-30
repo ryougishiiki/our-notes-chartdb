@@ -23,6 +23,11 @@ class FreshCatalog:
     action: str
 
 
+def catalog_cache_path(workdir: Path, version: str) -> Path:
+    """Keep each versioned catalog and its hash metadata in a separate namespace."""
+    return workdir / "catalog" / version / "catalog.bin"
+
+
 def load_fresh_catalog(config: ServerConfig, cache_file: Path) -> FreshCatalog:
     """Check the official hash on every call and reuse only a matching cache."""
     remote_hash = _fetch_official_catalog_hash(config.catalog_hash_url)
