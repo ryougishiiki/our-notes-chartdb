@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and validate without publishing a release or Pages site
+        type: boolean
+        required: false
+        default: false
+  repository_dispatch:
+    types:
+      - our-notes-chart-update
 
 permissions: {}
 
@@ -14,6 +23,7 @@ jobs:
       contents: read
     outputs:
       has_changes: ${{ steps.build.outputs.has_changes }}
+      dry_run: ${{ steps.build.outputs.dry_run }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +43,9 @@ jobs:
 
       - name: Build, validate and render the site
         id: build
+        env:
+          CHARTDB_SOURCE_EVENT_ID: ${{ github.event.client_payload.eventId || '' }}
+          CHARTDB_DRY_RUN: ${{ (github.event_name == 'repository_dispatch' && github.event.client_payload.dryRun == true) || (github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
         run: |
           bash ci/run.sh
           python - <<'PY' >> "$GITHUB_OUTPUT"
@@ -42,8 +55,10 @@ jobs:
           gate = json.loads(Path("dist/gate.json").read_text(encoding="utf-8"))
           print(f"has_changes={str(bool(gate['hasChanges'])).lower()}")
           PY
+          echo "dry_run=${CHARTDB_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
 
       - name: Upload release files
+        if: steps.build.outputs.dry_run != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: chartdb-release-files
@@ -56,6 +71,7 @@ jobs:
           retention-days: 1
 
       - name: Upload static site
+        if: steps.build.outputs.dry_run != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: chartdb-site
@@ -65,7 +81,7 @@ jobs:
 
   release:
     needs: build
-    if: github.ref == 'refs/heads/main' && needs.build.outputs.has_changes == 'true'
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.has_changes == 'true' && needs.build.outputs.dry_run != 'true'
     concurrency:
       group: chartdb-release
       cancel-in-progress: false
@@ -92,7 +108,7 @@ jobs:
 
   pages:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.dry_run != 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write

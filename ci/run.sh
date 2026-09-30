@@ -7,6 +7,8 @@ SERVER="${SERVER:-intl}"
 WORK=".chartdb-cache"
 OUT="dist"
 
+echo "sourceEventId=${CHARTDB_SOURCE_EVENT_ID:-none}"
+
 echo "== install Python dependencies (up to 3 attempts) =="
 install_python_dependencies() {
   local attempt

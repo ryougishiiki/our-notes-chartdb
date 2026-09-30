@@ -170,10 +170,14 @@ snapshot catches up.
 
 ## CI
 
-`.github/workflows/chartdb.yml` runs on `workflow_dispatch` + nightly
-`schedule` at 03:17 UTC. The build and site generation live in
-[`ci/run.sh`](ci/run.sh), so the validated data and report can be reproduced
-locally with `bash ci/run.sh` (publishing remains Actions-only).
+`.github/workflows/chartdb.yml` runs on `repository_dispatch` for
+`our-notes-chart-update`, `workflow_dispatch`, and nightly `schedule` at
+03:17 UTC. A dispatch logs `sourceEventId` and runs the existing full upstream
+build, freshness checks, validation, and release gate. Chart data in the
+payload is ignored. Test dispatches may set `dryRun: true` to run the build
+without uploading release files, creating a Release, or deploying Pages. All
+build and site generation live in [`ci/run.sh`](ci/run.sh), so validated data
+and reports can also be reproduced locally with `bash ci/run.sh`.
 
 ```
 build (all charts) -> hard gates -> report + release gate
