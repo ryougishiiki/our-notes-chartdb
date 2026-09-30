@@ -72,6 +72,6 @@ def decrypt_master_table(raw: bytes, master_crypto: dict[str, str]) -> dict:
     cipher = RijndaelCbc(key, iv, Pkcs7Padding(32), block_size=32)
     decoded = gzip.decompress(cipher.decrypt(raw[64:]))
     value = json.loads(decoded.decode("utf-8"))
-    if not isinstance(value.get("_allData"), list):
+    if not isinstance(value, dict) or not isinstance(value.get("_allData"), list):
         raise ValueError("decrypted master table has no _allData list")
     return value

@@ -21,7 +21,7 @@ from .config import resolve_server
 from .db import DatabaseBuilder
 from .hashing import canonical_json, sha256_bytes
 from .http import probe_exists
-from .master import ApkMasterSource, HaneokaMirrorMasterSource
+from .master import ApkMasterSource, HaneokaMirrorMasterSource, OfficialMasterSource
 from .normalize import CHART_SCHEMA_VERSION, build_chart_document
 from .ss import SsError, parse_ss
 from .state import diff, key_of, load_state, save_state
@@ -64,9 +64,26 @@ def _select(refs, args):
 def cmd_build(args) -> int:
     config = resolve_server(args.server)
     configured_floor = config.catalog_version
+    master_version = None
+    if args.master_source == "official":
+        official_master = OfficialMasterSource(config)
+        master_version = official_master.discover_version()
+        print(
+            f"[master-version] authority=official masterVersion={master_version.version} "
+            f"resourceVersion={master_version.resource_version}",
+            file=sys.stderr,
+        )
+
+    def catalog_is_published(version: str) -> bool:
+        has_hash = probe_exists(f"{config.remote_root}/catalog_{version}.hash")
+        if not has_hash:
+            return False
+        return probe_exists(f"{config.remote_root}/catalog_{version}.bin")
+
     version_resolution = resolve_catalog_version(
         configured_floor,
-        lambda version: probe_exists(f"{config.remote_root}/catalog_{version}.hash"),
+        catalog_is_published,
+        master_version.resource_version if master_version else None,
     )
     if version_resolution.resolved != configured_floor:
         print(
@@ -88,6 +105,8 @@ def cmd_build(args) -> int:
     print(
         f"[catalog] configuredFloor={configured_floor} resolved={version_resolution.resolved} "
         f"versionSource={version_resolution.source} probes={version_resolution.probes} "
+        f"masterAnchor={version_resolution.master_anchor or 'unavailable'} "
+        f"masterAnchorAvailable={version_resolution.master_anchor_available} "
         f"remoteCatalogHash={fresh_catalog.official_catalog_hash} "
         f"cachedCatalogHash={fresh_catalog.cached_official_catalog_hash or 'missing'} "
         f"action={fresh_catalog.action} catalogSha256={catalog_hash} "
@@ -96,19 +115,50 @@ def cmd_build(args) -> int:
     )
 
     # 2. Master mapping -------------------------------------------------------
-    if args.master_source == "apk":
+    if args.master_source == "official":
+        master = official_master
+    elif args.master_source == "apk":
         if not args.apk:
             raise SystemExit("--apk is required with --master-source apk")
         master = ApkMasterSource(Path(args.apk), config)
     else:
         master = HaneokaMirrorMasterSource(config)
-    snapshot = master.snapshot(music_ids={int(value) for value in args.music} or None)
+    requested_music_ids = {int(value) for value in args.music} or None
+    if args.master_source == "official":
+        # Reuse the version lookup that anchored catalog selection.
+        snapshot = official_master.snapshot(
+            music_ids=requested_music_ids,
+            version_info=master_version,
+        )
+    else:
+        snapshot = master.snapshot(music_ids=requested_music_ids)
     refs = list(snapshot.refs)
     print(
-        f"[master] source={snapshot.source} authority={snapshot.authority} "
+        f"[master] MASTER_AUTHORITY={snapshot.authority} source={snapshot.source} "
         f"masterRevision={snapshot.revision} masterCharts={len(refs)}",
         file=sys.stderr,
     )
+
+    mirror_comparison = None
+    if snapshot.authority == "official" and not args.music and not args.difficulty:
+        try:
+            mirror_comparison = HaneokaMirrorMasterSource(config).compare(
+                official_music_ids=set(snapshot.music_ids),
+                official_chart_files={ref.chart_file for ref in snapshot.refs},
+            )
+            print(
+                f"[master-mirror] status={mirror_comparison['status']} "
+                f"officialSongs={mirror_comparison['officialSongCount']} "
+                f"mirrorSongs={mirror_comparison['mirrorSongCount']} "
+                f"officialCharts={mirror_comparison['officialChartCount']} "
+                f"mirrorCharts={mirror_comparison['mirrorChartCount']} "
+                f"officialOnlyMusicIds={mirror_comparison['officialOnlyMusicIds']} "
+                f"mirrorOnlyMusicIds={mirror_comparison['mirrorOnlyMusicIds']}",
+                file=sys.stderr,
+            )
+        except Exception as error:
+            mirror_comparison = {"status": "MIRROR_UNAVAILABLE", "error": f"{type(error).__name__}: {error}"}
+            print(f"[master-mirror] status=MIRROR_UNAVAILABLE error={error}", file=sys.stderr)
 
     selected = _select(refs, args)
     print(f"[select] {len(selected)} chart(s)", file=sys.stderr)
@@ -210,6 +260,21 @@ def cmd_build(args) -> int:
     catalog_chart_files = set(discovery.charts)
     master_chart_files = {ref.chart_file for ref in refs}
     catalog_named_without_master = sorted(catalog_chart_files - master_chart_files)
+    master_references_without_catalog = sorted(master_chart_files - catalog_chart_files)
+    if master_references_without_catalog:
+        failures.append(
+            {
+                "chart": "MASTER_AHEAD_OF_CATALOG",
+                "reason": "Master references chart files absent from the official catalog: "
+                + ", ".join(master_references_without_catalog[:20]),
+            }
+        )
+    if master_references_without_catalog:
+        catalog_master_alignment = "MASTER_AHEAD_OF_CATALOG"
+    elif catalog_named_without_master:
+        catalog_master_alignment = "CATALOG_PRELOADED_CHARTS"
+    else:
+        catalog_master_alignment = "CATALOG_MASTER_ALIGNED"
     coverage = {
         "catalogMusicScoreBundles": discovery.chart_bundle_count + discovery.unreferenced_count,
         "catalogNamedCharts": discovery.chart_bundle_count,
@@ -221,7 +286,10 @@ def cmd_build(args) -> int:
         ),
         "catalogNamedWithoutMaster": len(catalog_named_without_master),
         "catalogNamedWithoutMasterList": catalog_named_without_master,
-        "catalogAligned": len(catalog_named_without_master) == 0,
+        "masterReferencesWithoutCatalog": len(master_references_without_catalog),
+        "masterReferencesWithoutCatalogList": master_references_without_catalog,
+        "catalogAligned": catalog_master_alignment == "CATALOG_MASTER_ALIGNED",
+        "catalogMasterAlignment": catalog_master_alignment,
     }
     print(
         f"[discovery] catalogMusicScoreBundles={coverage['catalogMusicScoreBundles']} "
@@ -260,7 +328,13 @@ def cmd_build(args) -> int:
         "masterAuthority": snapshot.authority,
         "masterRevision": snapshot.revision,
         "masterTables": snapshot.tables,
-        "officialMasterSource": "TODO",
+        "masterVersion": snapshot.version or None,
+        "masterResourceVersion": snapshot.resource_version or None,
+        "masterManifestSha256": snapshot.manifest_sha256 or None,
+        "officialMasterSource": snapshot.source if snapshot.authority == "official" else None,
+        "catalogMasterAlignment": catalog_master_alignment,
+        "mirrorComparison": mirror_comparison,
+        "masterAnchorAvailable": version_resolution.master_anchor_available,
         "gameVersion": config.catalog_version,
     }
     version = args.database_version or f"{config.id}-{catalog_hash[:12]}"
@@ -298,7 +372,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--music", action="append", default=[])
     build.add_argument("--difficulty", action="append", default=[])
     build.add_argument("--all", action="store_true")
-    build.add_argument("--master-source", choices=["mirror", "apk"], default="mirror")
+    build.add_argument("--master-source", choices=["official", "mirror", "apk"], default="official")
     build.add_argument("--apk", default=None)
     build.add_argument("--oracle", default=None)
     build.add_argument("--no-oracle", action="store_true")

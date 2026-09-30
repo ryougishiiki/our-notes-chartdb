@@ -3,10 +3,13 @@
 ``musicId`` and ``scoreId`` MUST come from Master data, never from bundle
 filenames.  Two providers exist:
 
-* ``ApkMasterSource`` - the official path: decrypt ``MasterLiveMusic`` /
-  ``MasterLiveMusicScore`` out of the asset-pack APK.  ``authority=official``.
+* ``OfficialMasterSource`` - discover the official version, validate its
+  manifest, and decrypt only ``MasterLiveMusic`` / ``MasterLiveMusicScore`` from
+  the CDN. ``authority=official``.
+* ``ApkMasterSource`` - an explicit local path that decrypts those tables from
+  an operator-supplied asset-pack APK. ``authority=official``.
 * ``HaneokaMirrorMasterSource`` - a public *derived* mirror of the same tables.
-  ``authority=derived``.  Used until an official endpoint is available.
+  ``authority=derived``. Used for comparison and explicit manual diagnostics.
 
 Both return a :class:`MasterSnapshot` whose ``revision`` is a content hash of
 the Master rows we actually consumed - it is **our own source revision**, not a
@@ -18,15 +21,20 @@ difficulty is a config change, not a code change.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from .config import ServerConfig
 from .crypto import decrypt_master_table
 from .hashing import canonical_json, sha256_bytes
-from .http import fetch_json
+from .http import fetch_bytes, fetch_json
+from .master_protocol import MasterVersion, discover_master_version
 
 MASTER_PREFIX = "assets/Master/"
 ASSET_PACK_NAMES = {"split_UnityDataAssetPack.apk", "UnityDataAssetPack.apk"}
@@ -60,6 +68,10 @@ class MasterSnapshot:
     revision: str  # content hash of the consumed Master rows
     tables: dict[str, str]  # table name -> sha256 of its rows
     refs: tuple[ChartRef, ...]
+    version: str = ""
+    resource_version: str = ""
+    manifest_sha256: str = ""
+    music_ids: tuple[int, ...] = ()
 
     @property
     def master_live_music_sha256(self) -> str:
@@ -83,7 +95,15 @@ def _table_sha256(rows: object) -> str:
 
 
 def make_snapshot(
-    *, source: str, authority: str, music_rows: list[dict], score_rows: list[dict], refs: list[ChartRef]
+    *,
+    source: str,
+    authority: str,
+    music_rows: list[dict],
+    score_rows: list[dict],
+    refs: list[ChartRef],
+    version: str = "",
+    resource_version: str = "",
+    manifest_sha256: str = "",
 ) -> MasterSnapshot:
     tables = {
         "MasterLiveMusic": _table_sha256(music_rows),
@@ -96,7 +116,166 @@ def make_snapshot(
         revision=revision,
         tables=tables,
         refs=tuple(refs),
+        version=version,
+        resource_version=resource_version,
+        manifest_sha256=manifest_sha256,
+        music_ids=tuple(
+            sorted(
+                {
+                    int(row.get("_id") or 0)
+                    for row in music_rows
+                    if isinstance(row, dict) and int(row.get("_id") or 0) > 0
+                }
+            )
+        ),
     )
+
+
+_MANIFEST_VERSION = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$")
+_MANIFEST_FILE = re.compile(r"^Master[A-Za-z0-9_]+\.bin$")
+_SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
+_MAX_MANIFEST_FILES = 4096
+_MAX_MASTER_TABLE_BYTES = 1024 * 1024 * 1024
+
+
+def validate_master_manifest(value: object, expected_version: str) -> dict:
+    """Validate a complete MasterManifest contract before selecting files.
+
+    Schema and path rules follow haneoka-gakuen/haneoka's
+    ``scripts/extract/master.py`` (MPL-2.0); no remote data is trusted before
+    all entries have passed validation.
+    """
+    if not isinstance(value, dict):
+        raise ValueError("manifest root must be an object")
+    version = value.get("version")
+    if (
+        not isinstance(version, str)
+        or version != expected_version
+        or not _MANIFEST_VERSION.fullmatch(version)
+        or any(segment in {".", ".."} for segment in version.split("/"))
+    ):
+        raise ValueError("manifest version is missing, unsafe, or does not match the official version")
+    files = value.get("files")
+    if not isinstance(files, list) or not files or len(files) > _MAX_MANIFEST_FILES:
+        raise ValueError("manifest files must be a non-empty bounded list")
+    seen: set[str] = set()
+    validated: list[dict] = []
+    for index, entry in enumerate(files):
+        if not isinstance(entry, dict):
+            raise ValueError(f"manifest files[{index}] must be an object")
+        name, digest, size = entry.get("name"), entry.get("hash"), entry.get("size")
+        if not isinstance(name, str) or not _MANIFEST_FILE.fullmatch(name):
+            raise ValueError(f"manifest files[{index}] has an unsafe filename")
+        if name in seen:
+            raise ValueError(f"manifest contains duplicate filename {name}")
+        if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+            raise ValueError(f"manifest has an invalid SHA-256 for {name}")
+        if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= _MAX_MASTER_TABLE_BYTES:
+            raise ValueError(f"manifest has an invalid size for {name}")
+        seen.add(name)
+        validated.append({"name": name, "hash": digest.lower(), "size": size})
+    result = dict(value)
+    result["files"] = validated
+    return result
+
+
+def _validate_master_remote_root(root: str) -> str:
+    parsed = urlsplit(root)
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("Master remote root has an invalid port") from error
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or parsed.query
+        or parsed.fragment
+        or "\\" in parsed.path
+        or any(part in {".", ".."} for part in parsed.path.split("/"))
+    ):
+        raise ValueError("Master remote root must be a plain HTTPS URL")
+    return root.rstrip("/")
+
+
+class OfficialMasterSource:
+    """Official version service and Master CDN source.
+
+    The implementation follows the public protocol and integrity contract in
+    haneoka-gakuen/haneoka ``scripts/ingest/master.py`` and
+    ``scripts/extract/master.py`` (MPL-2.0). Only the required two table files
+    are fetched, verified, and decrypted in memory.
+    """
+
+    source = "official-master-cdn"
+    authority = "official"
+    required_tables = ("MasterLiveMusic", "MasterLiveMusicScore")
+
+    def __init__(self, config: ServerConfig):
+        self.config = config
+
+    def discover_version(self) -> MasterVersion:
+        endpoint = str(self.config.master.get("versionEndpoint") or "")
+        if not endpoint:
+            raise ValueError("official Master version endpoint is not configured")
+        return discover_master_version(endpoint)
+
+    def snapshot(
+        self,
+        music_ids: set[int] | None = None,
+        *,
+        version_info: MasterVersion | None = None,
+    ) -> MasterSnapshot:
+        version_info = version_info or self.discover_version()
+        root = _validate_master_remote_root(str(self.config.master.get("remoteRoot") or ""))
+        manifest_url = f"{root}/{version_info.version}/MasterManifest.json"
+        try:
+            raw_manifest = fetch_bytes(manifest_url)
+            document = json.loads(raw_manifest.decode("utf-8"))
+            manifest = validate_master_manifest(document, version_info.version)
+        except Exception as error:
+            raise RuntimeError(f"OFFICIAL_MASTER_MANIFEST_INVALID: {error}") from error
+        manifest_sha256 = hashlib.sha256(raw_manifest).hexdigest()
+        entries = {item["name"]: item for item in manifest["files"]}
+        tables: dict[str, dict] = {}
+        for table_name in self.required_tables:
+            filename = f"{table_name}.bin"
+            entry = entries.get(filename)
+            if entry is None:
+                raise RuntimeError(f"OFFICIAL_MASTER_MANIFEST_INVALID: required {filename} is missing")
+            raw = fetch_bytes(f"{root}/{version_info.version}/{filename}")
+            if len(raw) != entry["size"]:
+                raise RuntimeError(
+                    f"OFFICIAL_MASTER_TABLE_INTEGRITY_FAILED: {filename} size mismatch "
+                    f"(expected {entry['size']}, got {len(raw)})"
+                )
+            digest = hashlib.sha256(raw).hexdigest()
+            if digest != entry["hash"]:
+                raise RuntimeError(f"OFFICIAL_MASTER_TABLE_INTEGRITY_FAILED: {filename} SHA-256 mismatch")
+            table = decrypt_master_table(raw, self.config.master_crypto)
+            if not isinstance(table, dict) or not isinstance(table.get("_allData"), list):
+                raise RuntimeError(f"OFFICIAL_MASTER_TABLE_INVALID: {filename} has no _allData list")
+            tables[table_name] = table
+
+        music_rows = tables["MasterLiveMusic"]["_allData"]
+        score_rows = tables["MasterLiveMusicScore"]["_allData"]
+        if not music_rows or not score_rows:
+            raise RuntimeError("OFFICIAL_MASTER_TABLE_INVALID: required song or score table is empty")
+        refs = build_chart_refs(music_rows, score_rows, master_source=self.source)
+        if music_ids is not None:
+            refs = [ref for ref in refs if ref.music_id in music_ids]
+        return make_snapshot(
+            source=self.source,
+            authority=self.authority,
+            music_rows=music_rows,
+            score_rows=score_rows,
+            refs=refs,
+            version=version_info.version,
+            resource_version=version_info.resource_version,
+            manifest_sha256=manifest_sha256,
+        )
 
 
 def build_chart_refs(
@@ -234,6 +413,54 @@ class HaneokaMirrorMasterSource:
         if not isinstance(raw, dict):
             raise ValueError(f"mirror detail endpoint returned no raw Master row for song {key}")
         return raw
+
+    def compare(
+        self,
+        *,
+        official_music_ids: set[int],
+        official_chart_files: set[str],
+    ) -> dict:
+        """Compare only the mirror song index; no detail-row fan-out is needed."""
+        songs = self._songs()
+        mirror_music_ids: set[int] = set()
+        mirror_chart_files: set[str] = set()
+        mirror_chart_count = 0
+        for key, song in songs.items():
+            if not isinstance(song, dict):
+                continue
+            try:
+                music_id = int(song.get("musicId") or key)
+            except (TypeError, ValueError):
+                continue
+            mirror_music_ids.add(music_id)
+            for entry in song.get("difficulty") or []:
+                if not isinstance(entry, dict):
+                    continue
+                mirror_chart_count += 1
+                value = str(entry.get("file") or "").split("/Live/MusicScore/")[-1]
+                if value.endswith(".bytes"):
+                    mirror_chart_files.add(value[:-6])
+        official_only = sorted(official_music_ids - mirror_music_ids)
+        mirror_only = sorted(mirror_music_ids - official_music_ids)
+        official_chart_only = sorted(official_chart_files - mirror_chart_files)
+        mirror_chart_only = sorted(mirror_chart_files - official_chart_files)
+        if official_only or len(official_music_ids) > len(mirror_music_ids):
+            status = "MIRROR_LAG_CONFIRMED"
+        elif not mirror_only and not official_chart_only and not mirror_chart_only:
+            status = "MIRROR_CURRENT"
+        else:
+            status = "MIRROR_DIVERGED"
+        return {
+            "officialSongCount": len(official_music_ids),
+            "mirrorSongCount": len(mirror_music_ids),
+            "officialChartCount": len(official_chart_files),
+            "mirrorChartCount": mirror_chart_count,
+            "officialOnlyMusicIds": official_only,
+            "mirrorOnlyMusicIds": mirror_only,
+            "officialOnlyChartFiles": official_chart_only,
+            "mirrorOnlyChartFiles": mirror_chart_only,
+            "status": status,
+        }
 
     def snapshot(self, music_ids: set[int] | None = None) -> MasterSnapshot:
         from concurrent.futures import ThreadPoolExecutor

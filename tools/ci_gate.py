@@ -22,6 +22,9 @@ def main() -> int:
     complete = bool(validation.get("completeForMasterSnapshot"))
     incremental = manifest.get("incremental", {})
     source = manifest.get("source", {})
+    derived_allowed = os.environ.get("CHARTDB_ALLOW_DERIVED_MASTER", "").strip().lower() in {"1", "true", "yes"}
+    master_authority = source.get("masterAuthority")
+    authority_complete = master_authority == "official" or (derived_allowed and master_authority == "derived")
 
     print("---- chartdb report ----")
     print("databaseVersion:", manifest.get("databaseVersion"))
@@ -32,12 +35,14 @@ def main() -> int:
         source.get("catalogVersionConfiguredFloor")
         and source.get("catalogVersionResolved")
         and source.get("catalogVersion") == source.get("catalogVersionResolved")
-        and source.get("catalogVersionSource") in {"probe", "config"}
+        and source.get("catalogVersionSource") in {"probe", "config", "master-anchor+probe"}
         and source.get("catalogOfficialHash")
         and source.get("officialCatalogHash") == source.get("catalogOfficialHash")
         and source.get("catalogSha256")
         and source.get("catalogAction") in {"REUSED", "REFRESHED"}
         and source.get("masterRevision")
+        and authority_complete
+        and (master_authority != "official" or (source.get("masterVersion") and source.get("masterManifestSha256")))
     )
     if freshness_complete:
         print(
@@ -48,7 +53,7 @@ def main() -> int:
             )
         )
     else:
-        print("GATE FAIL: catalog or Master freshness metadata is incomplete")
+        print("GATE FAIL: catalog or Master freshness metadata is incomplete or Master authority is not allowed")
     print("catalogAligned:", (manifest.get("coverage") or {}).get("catalogAligned"))
     print("coverage:", json.dumps(manifest.get("coverage", {}), ensure_ascii=False))
     print("incremental:", json.dumps({k: v for k, v in incremental.items() if k.endswith("Count")}))

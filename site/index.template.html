@@ -15,6 +15,7 @@
     <div><div class="eyebrow"><i class="dot"></i> CHARTDB · INTERNATIONAL</div><h1>OurNotes 谱面统计</h1><p>把谱面数量、时长与单位时间音符量放在同一视图里，快速找到极值，也能继续筛选完整谱面清单。</p></div>
     <div class="header-actions"><div class="snapshot" id="snapshot"></div><a class="download" href="chartdb_spectra_stats.csv" download>下载 CSV ↓</a></div>
   </header>
+  <section class="section"><div class="section-head"><div><h2>数据源诊断</h2><p>显示本次数据构建使用的官方版本锚点与镜像对照。</p></div></div><article class="panel"><div id="source-diagnostics" class="diff-list"></div></article></section>
   <section class="kpis" id="kpis"></section>
   <section class="section"><div class="section-head"><div><h2>三项极值</h2><p>使用你提供的计算口径，按谱面逐张比较。</p></div><span class="pill" id="parse-status"></span></div><div class="winners" id="winners"></div><div class="insight" id="insight"></div></section>
   <section class="section"><div class="section-head"><div><h2>难度分布</h2><p>每档谱面数、平均音符数与平均密度。</p></div></div><div class="grid-two"><article class="panel"><h3>平均密度 · 音符/秒</h3><p class="sub">难度越高，平均密度整体递增。</p><div id="difficulty-bars" class="diff-list"></div></article><article class="panel"><h3>时长与密度</h3><p class="sub">每个点代表一张谱面；横轴为秒，纵轴为音符/秒。</p><div class="legend" id="legend"></div><div class="svgbox"><svg id="scatter" viewBox="0 0 760 300" role="img" aria-label="谱面时长与密度散点图"></svg></div><div class="chart-note">悬停在点上可查看曲目、难度和指标。</div></article></div></section>
@@ -33,6 +34,17 @@ const LABELS = {easy:'Easy',normal:'Normal',hard:'Hard',expert:'Expert'};
 const nf = new Intl.NumberFormat('zh-CN');
 const fmt = (v,d=2)=>Number(v).toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d});
 const esc = v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const diagRows = [
+  ['Catalog configured floor', S.catalog_version_floor],
+  ['Catalog resolved / source', `${S.catalog_version ?? '—'} / ${S.catalog_version_source ?? '—'}`],
+  ['Master authority / source', `${S.master_authority ?? '—'} / ${S.master_source ?? '—'}`],
+  ['Master version', S.master_version],
+  ['Master resourceVersion', S.master_resource_version],
+  ['Master manifest SHA-256', S.master_manifest_sha256],
+  ['Catalog / Master alignment', S.catalog_master_alignment],
+  ['Mirror comparison', `${S.mirror_status ?? '—'} · songs ${S.mirror_song_count ?? '—'} · charts ${S.mirror_chart_count ?? '—'}`],
+];
+document.querySelector('#source-diagnostics').innerHTML = diagRows.map(([label,value])=>`<div><strong>${esc(label)}</strong><div class="sub" style="overflow-wrap:anywhere">${esc(value??'—')}</div></div>`).join('');
 function cardHTML(label,value,hint){return `<article class="kpi"><div class="label">${label}</div><div class="value">${value}</div><div class="hint">${hint}</div></article>`}
 document.querySelector('#kpis').innerHTML = [cardHTML('谱面总数',nf.format(S.chart_count),'张谱面，全部通过解析'),cardHTML('曲目数量',nf.format(S.song_count),'每首曲目最多包含 4 档难度'),cardHTML('平均时长',`${fmt(S.avg_duration_s)}<small style="font-size:15px;color:#778198"> 秒</small>`,'按谱面最后音符时间计算'),cardHTML('平均密度',`${fmt(S.avg_density)}<small style="font-size:15px;color:#778198"> 音符/秒</small>`,`中位数 ${fmt(S.median_density)} 音符/秒`) ].join('');
 document.querySelector('#parse-status').textContent = `${S.chart_count} / ${S.chart_count} 张谱面解析成功`;

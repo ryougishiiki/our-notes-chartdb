@@ -85,37 +85,29 @@ a future schema can be derived without re-downloading.
 Container notes (`long`/`guide`) have `container: true`, `tick: null` and carry
 their geometry in `node[]`.
 
-## Master source (important)
+## Master source
 
-`musicId`/`scoreId` come from *Master data*, never from bundle filenames. Two
-implementations exist:
+`musicId`/`scoreId` come from *Master data*, never from bundle filenames. CI
+defaults to the public official Master version service and CDN. It validates the
+gRPC response and `MasterManifest.json`, then fetches and verifies only
+`MasterLiveMusic.bin` and `MasterLiveMusicScore.bin` before decrypting them.
+An official Master failure stops the build; CI does not silently use a mirror.
 
-| `--master-source` | implementation | status |
+| `--master-source` | implementation | authority |
 | --- | --- | --- |
-| `apk` | `MasterLiveMusic` + `MasterLiveMusicScore` decrypted from the asset-pack APK (`assets/Master/Master*.bin`, Rijndael-CBC + gzip) | **official authority**; requires the APK |
-| `mirror` (default) | `https://haneoka.org/api/v1/servers/<server>/songs[/<id>]`, which exposes the same MasterLiveMusic row (`_easyID`…) and the resolved chart file | publicly reachable **derived** mirror |
+| `official` (default) | official version service, manifest, and Master CDN files | `official` |
+| `mirror` | Haneoka's public song index and detail rows | `derived`; explicit diagnostic use only |
+| `apk` | Master tables decrypted from a supplied asset-pack APK | official game data supplied by the operator |
 
-The official path needs `split_UnityDataAssetPack.apk`, which is discovered via a
-private game-service version endpoint; it is not on the public CDN. Point CI at
-an APK (`--apk`) to use the authoritative source.
+An official build makes a one-request Haneoka comparison for song/chart counts
+and ID differences. It cannot affect whether the build succeeds. Set
+`--master-source mirror` explicitly to perform a derived build and look for the
+`MASTER_AUTHORITY=derived` log marker.
 
-Provenance is recorded explicitly in `manifest.json`:
-
-```json
-"masterSource": "haneoka-public-mirror",
-"masterAuthority": "derived",
-"masterRevision": "<sha256 over the consumed Master rows>",
-"masterTables": {
-  "MasterLiveMusic": "<sha256>",
-  "MasterLiveMusicScore": "<sha256>"
-},
-"officialMasterSource": "TODO"
-```
-
-`masterRevision` is **our own content hash of the rows we actually consumed**,
-not a game-published version string.  When an official Master endpoint becomes
-available (`officialMasterSource`), it replaces the mirror as a higher-priority
-provider without touching the downstream `chartdoc/1` protocol.
+The manifest records official master version, resourceVersion, manifest hash,
+catalog floor/resolved version/hash, table hashes, and mirror comparison status.
+`masterRevision` remains our content hash of the rows consumed, while
+`masterVersion` and `masterResourceVersion` are the official service values.
 
 Whatever the source, every master-referenced `chartFile` must resolve to a
 `live_assets_live_musicscore_<...>.bundle` in the official catalog; a master
@@ -187,12 +179,12 @@ build (all charts) -> hard gates -> report + release gate
 
 * incremental: `.chartdb-cache/state.json` holds `(musicId,difficulty) -> sourceSha256`;
   a release is only published when there are new/changed/removed charts.
-* freshness: each run probes versioned `catalog_<version>.hash` files from the
-  configured floor, then reuses or refreshes a catalog in a version-specific
-  cache namespace by its official hash. The manifest records the configured
-  floor, resolved version, official hash, and `catalogSha256` separately.
-* Master: each run refreshes `/songs` and every `/songs/<id>` detail. A failed or
-  incomplete detail request fails the build rather than looking like removals.
+* freshness: the official Master `resourceVersion` anchors catalog resolution;
+  bounded local probing continues from that anchor. A version is published only
+  when both its official `.hash` and `.bin` files exist.
+* Master: the manifest SHA-256, declared file size, and file SHA-256 are checked
+  before decrypting. Master version-only changes appear in diagnostics and the
+  Pages report even when no chart Release is needed.
 * bundles: cached payloads are reused only while their catalog identity matches;
   a new or changed identity triggers a download.
 * atomicity: the release is created only after the whole build + all gates pass.

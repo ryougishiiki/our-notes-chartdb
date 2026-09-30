@@ -124,6 +124,8 @@ def build_summary(records: list[dict], manifest: dict) -> dict:
 
     source = manifest.get("source", {})
     pack = manifest.get("pack", {})
+    mirror = source.get("mirrorComparison") or {}
+    coverage = manifest.get("coverage", {})
     return {
         "chart_count": len(records),
         "song_count": len({r["music_id"] for r in records}),
@@ -141,6 +143,17 @@ def build_summary(records: list[dict], manifest: dict) -> dict:
         "generated_at": manifest.get("generatedAt", "unknown"),
         "pack_sha256": pack.get("sha256", ""),
         "catalog_version": source.get("catalogVersion", "unknown"),
+        "catalog_version_floor": source.get("catalogVersionConfiguredFloor"),
+        "catalog_version_source": source.get("catalogVersionSource"),
+        "master_authority": source.get("masterAuthority"),
+        "master_source": source.get("masterSource"),
+        "master_version": source.get("masterVersion"),
+        "master_resource_version": source.get("masterResourceVersion"),
+        "master_manifest_sha256": source.get("masterManifestSha256"),
+        "catalog_master_alignment": coverage.get("catalogMasterAlignment"),
+        "mirror_status": mirror.get("status"),
+        "mirror_song_count": mirror.get("mirrorSongCount"),
+        "mirror_chart_count": mirror.get("mirrorChartCount"),
         "server": source.get("server", "unknown"),
     }
 

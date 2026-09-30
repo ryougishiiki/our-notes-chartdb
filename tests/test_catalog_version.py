@@ -23,9 +23,11 @@ def test_shared_probe_contract_cases():
     assert catalog_version.MAX_PROBE_REQUESTS == contract["maxProbeRequests"]
     for case in contract["cases"]:
         hits = set(case["existing"])
-        result = catalog_version.resolve_catalog_version(case["floor"], hits.__contains__)
+        result = catalog_version.resolve_catalog_version(
+            case["floor"], hits.__contains__, case.get("masterAnchor")
+        )
         assert result.resolved == case["expected"], case["name"]
-        assert result.source == "probe", case["name"]
+        assert result.source == case.get("expectedSource", "probe"), case["name"]
 
 
 def test_nonstandard_version_is_returned_without_network_probes():

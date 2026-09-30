@@ -7,7 +7,7 @@
       "platform": "Android",
       "unityVersion": "6000.3.12f1",
       "remoteRoot": "https://l14-prod-hk-patch-sirius.gamerfusiontech.com/prod/hk_27f3c91e8b62d6056c7a19f2e83b6d10/asset/Android",
-      "catalog": { "version": "1.0.0.100" },
+      "catalog": { "version": "1.0.0.201" },
       "bundleCrypto": {
         "scheme": "haneoka-aes-ctr-header-v1",
         "headerBytes": 16384,
@@ -20,7 +20,16 @@
         "key": "0532791c510a08eb7ede6b46c6ba71ea9aa2a3cfb678a595f89d67c8a5e493b6",
         "iv": "9b94c91e242a562e97fcd505b75a5129b2b80632a269034cf942ec7293d489a1"
       },
-      "masterMirror": { "baseUrl": "https://haneoka.org", "apiPrefix": "/api/v1/servers/intl" }
+      "master": {
+        "authority": "official",
+        "versionEndpoint": "https://l14-prod-hk-all-gs-sirius.gamerfusiontech.com/app.masterdata.MasterdataService/Version",
+        "remoteRoot": "https://l14-prod-hk-patch-sirius.gamerfusiontech.com/prod/hk_27f3c91e8b62d6056c7a19f2e83b6d10/master",
+        "mirror": {
+          "enabled": true,
+          "baseUrl": "https://haneoka.org",
+          "apiPrefix": "/api/v1/servers/intl"
+        }
+      }
     }
   }
 }

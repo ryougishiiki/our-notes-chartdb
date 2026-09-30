@@ -5,4 +5,5 @@ UnityPy==1.25.3
 etcpak==0.9.15
 pycryptodome==3.23.0
 py3rijndael==0.3.3
+grpcio>=1.64,<2
 zstandard>=0.22

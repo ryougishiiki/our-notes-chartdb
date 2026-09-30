@@ -1,4 +1,5 @@
 .cache/
+.chartdb-cache/
 dist/
 dist-*/
 .vendor/

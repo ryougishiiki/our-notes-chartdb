@@ -38,7 +38,7 @@ echo "== build correctness oracle (pinned external parser) =="
 node tools/oracle/build.mjs
 
 echo "== build chart DB =="
-python -m chartdb build --server "$SERVER" --all --out "$OUT" --workdir "$WORK"
+python -m chartdb build --server "$SERVER" --all --master-source official --out "$OUT" --workdir "$WORK"
 
 echo "== release gate =="
 python tools/ci_gate.py "$OUT"

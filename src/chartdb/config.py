@@ -27,6 +27,7 @@ class ServerConfig:
     bundle_crypto: BundleCrypto
     master_crypto: dict[str, str]
     master_mirror: dict[str, str]
+    master: dict[str, Any]
 
     @property
     def catalog_bin_url(self) -> str:
@@ -56,7 +57,8 @@ def load_config(path: Path | None = None) -> dict[str, ServerConfig]:
                 header_bytes=int(crypto["headerBytes"]),
             ),
             master_crypto=dict(raw.get("masterCrypto", {})),
-            master_mirror=dict(raw.get("masterMirror", {})),
+            master_mirror=dict(raw.get("master", {}).get("mirror", raw.get("masterMirror", {}))),
+            master=dict(raw.get("master", {})),
         )
     return servers
 
