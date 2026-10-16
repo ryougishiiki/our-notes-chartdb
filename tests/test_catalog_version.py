@@ -28,6 +28,28 @@ def test_shared_probe_contract_cases():
         )
         assert result.resolved == case["expected"], case["name"]
         assert result.source == case.get("expectedSource", "probe"), case["name"]
+        if "expectedProbes" in case:
+            assert result.probes == case["expectedProbes"], case["name"]
+
+
+def test_unpublished_master_anchor_fails_without_falling_back_to_old_floor():
+    checked = []
+    with pytest.raises(catalog_version.CatalogAnchorUnavailableError, match="not published"):
+        catalog_version.resolve_catalog_version(
+            "1.0.0.201",
+            lambda version: checked.append(version) and False,
+            "1.0.1.600.7c4e9a2b",
+        )
+    assert checked == ["1.0.1.600.7c4e9a2b"]
+
+
+def test_unsafe_master_anchor_is_rejected_before_network_probe():
+    checked = []
+    with pytest.raises(ValueError, match="safe catalog path segment"):
+        catalog_version.resolve_catalog_version(
+            "1.0.0.201", checked.append, "../1.0.1.600.7c4e9a2b"
+        )
+    assert checked == []
 
 
 def test_nonstandard_version_is_returned_without_network_probes():

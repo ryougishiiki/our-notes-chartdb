@@ -35,7 +35,7 @@ def main() -> int:
         source.get("catalogVersionConfiguredFloor")
         and source.get("catalogVersionResolved")
         and source.get("catalogVersion") == source.get("catalogVersionResolved")
-        and source.get("catalogVersionSource") in {"probe", "config", "master-anchor+probe"}
+        and source.get("catalogVersionSource") in {"probe", "config", "master-anchor", "master-anchor+probe"}
         and source.get("catalogOfficialHash")
         and source.get("officialCatalogHash") == source.get("catalogOfficialHash")
         and source.get("catalogSha256")

@@ -179,9 +179,11 @@ build (all charts) -> hard gates -> report + release gate
 
 * incremental: `.chartdb-cache/state.json` holds `(musicId,difficulty) -> sourceSha256`;
   a release is only published when there are new/changed/removed charts.
-* freshness: the official Master `resourceVersion` anchors catalog resolution;
-  bounded local probing continues from that anchor. A version is published only
-  when both its official `.hash` and `.bin` files exist.
+* freshness: the official Master `resourceVersion` is used verbatim as the exact
+  catalog generation and is accepted only when both official `.hash` and `.bin`
+  files exist. If Master provides no anchor, bounded numeric probing uses the
+  configured floor; an unavailable official anchor fails closed instead of
+  falling back to stale data.
 * Master: the manifest SHA-256, declared file size, and file SHA-256 are checked
   before decrypting. Master version-only changes appear in diagnostics and the
   Pages report even when no chart Release is needed.
