@@ -35,10 +35,12 @@ PY
 
 PACK="$(python -c 'import json,sys;print(json.load(open(sys.argv[1], encoding="utf-8"))["pack"]["file"])' "$DIST/manifest.json")"
 
-LATEST="$(git ls-remote --tags origin 'chartdb-v*' \
-  | sed -nE 's#.*refs/tags/chartdb-v([0-9]+)$#\1#p' \
-  | sort -n | tail -1)"
-TAG="chartdb-v$(( ${LATEST:-0} + 1 ))"
+TAG="$(python tools/release_tag.py "$DIST/manifest.json")"
+TAG_MATCHES="$(git ls-remote --tags origin "refs/tags/$TAG")"
+if [[ -n "$TAG_MATCHES" ]]; then
+  echo "release tag already exists for this game version: $TAG" >&2
+  exit 1
+fi
 
 echo "== publish $TAG =="
 gh release create "$TAG" \

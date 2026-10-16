@@ -193,7 +193,10 @@ build (all charts) -> hard gates -> report + release gate
 * Pages: every successful build on `main` deploys the generated statistics
   site, regardless of whether the incremental gate found changes. The Pages job
   depends on the build job, not the conditional Release job.
-* tag: `chartdb-v<N>`; the real source revision is in `manifest.json`.
+* tag: `chartdb-v<game-version>` from the official Master `resourceVersion`;
+  a dotted revision suffix is rendered with a hyphen (for example,
+  `1.0.1.600.7c4e9a2b` becomes `chartdb-v1.0.1.600-7c4e9a2b`). The content
+  fingerprint remains in the manifest's `databaseVersion`.
 * release notes: catalog version/hash, Master revision, new/changed/removed and
   unchanged counts, chart keys, total charts, and pack SHA-256.
 
