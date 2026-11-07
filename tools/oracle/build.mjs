@@ -15,11 +15,12 @@ function git(cwd, args) {
 
 for (const repo of lock.repositories) {
   const destination = join(vendorRoot, repo.name);
-  if (!existsSync(join(destination, ".git"))) {
+  const fresh = !existsSync(join(destination, ".git"));
+  if (fresh) {
     console.log(`vendoring ${repo.name} @ ${repo.commit.slice(0, 12)}`);
     execFileSync("git", ["clone", "--filter=blob:none", "--no-checkout", repo.url, destination], { stdio: "inherit" });
   }
-  if (git(destination, ["rev-parse", "HEAD"]) !== repo.commit) {
+  if (fresh || git(destination, ["rev-parse", "HEAD"]) !== repo.commit) {
     git(destination, ["fetch", "--depth=1", "origin", repo.commit]);
     git(destination, ["checkout", "--detach", repo.commit]);
   }
