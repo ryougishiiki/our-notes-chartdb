@@ -23,6 +23,7 @@ from .hashing import canonical_json, sha256_bytes
 from .http import probe_exists
 from .master import ApkMasterSource, HaneokaMirrorMasterSource, OfficialMasterSource
 from .normalize import CHART_SCHEMA_VERSION, build_chart_document
+from .events import CONTRACTS, validate_contracts
 from .ss import SsError, parse_ss
 from .state import diff, key_of, load_state, save_state
 from .unity import iter_text_assets, load_environment
@@ -176,6 +177,7 @@ def cmd_build(args) -> int:
     combo_stats: dict[str, int] = {}
     state_charts: dict[str, str] = {}
     converted = 0
+    event_contract_count = 0
     for ref in selected:
         key = key_of(ref.music_id, ref.difficulty)
         bundle = discovery.charts.get(ref.chart_file)
@@ -228,7 +230,11 @@ def cmd_build(args) -> int:
                 "unityVersion": config.unity_version,
             },
         }
-        document = build_chart_document(ss, ref, source, judge)
+        try:
+            document = build_chart_document(ss, ref, source, judge)
+        except (ValueError, TypeError, KeyError) as error:
+            failures.append({"chart": key, "reason": f"event contract: {error}"})
+            continue
         gates = chart_gates(document, asset.payload, args.oracle_policy)
         failed = [g for g in gates if g.status == "fail"]
         document["metadata"]["gates"] = [g.__dict__ for g in gates]
@@ -236,8 +242,10 @@ def cmd_build(args) -> int:
             failures.append({"chart": key, "reason": "gates: " + ", ".join(g.name for g in failed)})
             continue
 
-        builder.add(document, source["sourceSha256"])
-        state_charts[key] = source["sourceSha256"]
+        entry = builder.add(document, source["sourceSha256"])
+        # Exported fields can change even when original SS bytes do not.
+        state_charts[key] = entry["normalizedSha256"]
+        event_contract_count += int(validate_contracts(document))
         converted += 1
         combo_state = "unknown"
         if judge is not None and ref.full_combo_count is not None:
@@ -311,6 +319,8 @@ def cmd_build(args) -> int:
         "comboCountMismatch": combo_stats.get("mismatch", 0),
         "comboCountUnknown": combo_stats.get("unknown", 0),
         "comboCountPolicy": args.oracle_policy,
+        "eventContractCharts": event_contract_count,
+        "eventContractsComplete": converted > 0 and event_contract_count == converted,
     }
     source_meta = {
         "server": config.id,
@@ -340,6 +350,7 @@ def cmd_build(args) -> int:
     version = args.database_version or f"{config.id}-{catalog_hash[:12]}"
     manifest = builder.write(out, source_meta, validation_meta, incremental, version)
     manifest["coverage"] = coverage
+    manifest["contracts"] = CONTRACTS
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     full_selection = len(selected) == len(refs)

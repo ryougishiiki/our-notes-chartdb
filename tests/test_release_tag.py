@@ -29,6 +29,17 @@ def test_release_tag_requires_official_master_version():
         tag_for_manifest(_manifest("1.0.3.abcd1234", authority="derived"))
 
 
+def test_corrected_export_gets_unique_tag_without_game_version_change():
+    manifest = _manifest("1.1.0.301.3d7eee12")
+    manifest["index"] = {"sha256": "a" * 64}
+    assert tag_for_manifest(manifest) == "chartdb-v1.1.0.301-3d7eee12-db-aaaaaaaaaaaa"
+    manifest["index"]["sha256"] = "b" * 64
+    assert tag_for_manifest(manifest).endswith("-db-bbbbbbbbbbbb")
+    manifest["index"]["sha256"] = "bad"
+    with pytest.raises(ValueError, match="digest"):
+        tag_for_manifest(manifest)
+
+
 @pytest.mark.parametrize("resource_version", ["", "../1.0.3", "1.0..3", "1.0.3."])
 def test_unsafe_versions_are_rejected(resource_version: str):
     with pytest.raises(ValueError):

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .ss import SsNote, SsRoot, bpm_events, sig_events
 from .timing import TickConverter
+from .events import build_events, build_derived
 
 CHART_SCHEMA_VERSION = "chartdoc/1"
 
@@ -98,7 +99,7 @@ def build_chart_document(ss: SsRoot, chart_ref, source: dict, judge: dict | None
         "oracle": judge.get("oracle") if judge else None,
     }
 
-    return {
+    document = {
         "schema": CHART_SCHEMA_VERSION,
         "identity": {
             "musicId": chart_ref.music_id,
@@ -110,6 +111,7 @@ def build_chart_document(ss: SsRoot, chart_ref, source: dict, judge: dict | None
         "timing": {
             "bpm": ss.bpm,
             "signature": ss.sig,
+            "events": build_events(ss, converter, source["sourceSha256"]),
             "tickConverter": {
                 "implementation": "cassiopeia-tick-converter-port",
                 "ppq": 480,
@@ -125,3 +127,7 @@ def build_chart_document(ss: SsRoot, chart_ref, source: dict, judge: dict | None
             "validation": validation,
         },
     }
+    if judge is not None:
+        document["judgements"], document["scoreTiming"] = build_derived(
+            document["timing"]["events"], judge, document["identity"], source["sourceSha256"])
+    return document

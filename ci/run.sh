@@ -36,6 +36,7 @@ npm ci --no-audit --no-fund
 
 echo "== build correctness oracle (pinned external parser) =="
 node tools/oracle/build.mjs
+python -m pytest tests/test_event_oracle.py -q
 
 echo "== build chart DB =="
 python -m chartdb build --server "$SERVER" --all --master-source official --out "$OUT" --workdir "$WORK"

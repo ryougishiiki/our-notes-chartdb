@@ -64,7 +64,9 @@ PYTHONPATH=src python -m chartdb build --server intl --all --out dist
 identity  { musicId, difficulty, difficultyIndex, scoreId }
 source    { server, catalogVersion, catalogHash, masterSource, chartFile,
             assetPath, ssVersion, sourceSha256, bundle{...} }
-timing    { bpm[], signature[], tickConverter }
+timing    { bpm[], signature[], tickConverter, events{skills[], fever[], raw} }
+judgements { schema, sourceSha256, normalizer, groups[], totalCount }
+scoreTiming { schema, identity, sourceSha256, normalizer, skills[], groups[] }
 notes[]   { type, container, tick, timeMs, bar, position, positionAuto,
             size, critical, visible, direction, ease, alpha, node[], raw }
 metadata  { title, playLevel, fieldConfidence, validation, gates }
@@ -84,6 +86,13 @@ a future schema can be derived without re-downloading.
 `notes[]` is in **source order** (`SsScore.Notes` order, i.e. authored order).
 Container notes (`long`/`guide`) have `container: true`, `tick: null` and carry
 their geometry in `node[]`.
+
+See [the event contract](docs/event-contract.md) for authored skill/fever start
+and end points, the complete canonical judgement timeline, automatic consumer
+updates, validation, and the distinction between authored fever ranges and
+actual player activation. These fields follow chart content hashes rather than
+an APK-specific song inventory. Existing gameplay-semantic confidence labels
+are not promoted merely because their tick/time projection is now exported.
 
 ## Master source
 

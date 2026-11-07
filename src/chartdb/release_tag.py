@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .master_protocol import is_safe_resource_version
 
 
@@ -34,6 +36,13 @@ def tag_for_manifest(manifest: object) -> str:
         raise ValueError("release tag requires official Master provenance")
     version = format_game_version(source.get("masterResourceVersion"))
     tag = f"chartdb-v{version}"
+    # A corrected/additive data export can be released without a game update.
+    # Keep published historical tags intact; bind each new export to its index.
+    if "index" in manifest:
+        digest = manifest.get("index", {}).get("sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("release tag requires a valid normalized index digest")
+        tag += f"-db-{digest[:12]}"
     if ".." in tag or tag.endswith(".") or tag.lower().endswith(".lock"):
         raise ValueError("Master resourceVersion cannot be represented as a Git tag")
     return tag

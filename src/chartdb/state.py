@@ -1,18 +1,18 @@
-"""Incremental state: one hash per (musicId, difficulty)."""
+"""Incremental state: normalized output hash per (musicId, difficulty)."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-STATE_SCHEMA = "chartdb-state/1"
+STATE_SCHEMA = "chartdb-state/2"
 
 
 def load_state(path: Path) -> dict:
     if not path.is_file():
         return {"schema": STATE_SCHEMA, "charts": {}}
     value = json.loads(path.read_text("utf-8"))
-    if value.get("schema") != STATE_SCHEMA or not isinstance(value.get("charts"), dict):
+    if value.get("schema") not in ("chartdb-state/1", STATE_SCHEMA) or not isinstance(value.get("charts"), dict):
         raise ValueError(f"invalid state file: {path}")
     return value
 
@@ -51,7 +51,11 @@ def diff(old: dict[str, str], new: dict[str, str]) -> dict:
 
 
 def has_changes(incremental: dict) -> bool:
-    """Whether the formal chart set or any of its source payloads changed."""
+    """Whether the formal chart set or any normalized output changed.
+
+    Old v1 source hashes compare unequal once, publishing the contract migration.
+    Subsequent identical normalized exports retain their existing results.
+    """
     return any(
         bool(incremental.get(key))
         for key in ("newCharts", "changedCharts", "removedCharts")

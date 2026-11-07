@@ -22,6 +22,10 @@ def main() -> int:
     complete = bool(validation.get("completeForMasterSnapshot"))
     incremental = manifest.get("incremental", {})
     source = manifest.get("source", {})
+    from chartdb.events import CONTRACTS
+    contracts_complete = (manifest.get("contracts") == CONTRACTS
+                          and validation.get("eventContractsComplete") is True
+                          and validation.get("eventContractCharts") == manifest.get("chartCount"))
     derived_allowed = os.environ.get("CHARTDB_ALLOW_DERIVED_MASTER", "").strip().lower() in {"1", "true", "yes"}
     master_authority = source.get("masterAuthority")
     authority_complete = master_authority == "official" or (derived_allowed and master_authority == "derived")
@@ -68,7 +72,9 @@ def main() -> int:
         )
     )
 
-    if not freshness_complete or not complete or failed:
+    if not freshness_complete or not complete or failed or not contracts_complete:
+        if not contracts_complete:
+            print("GATE FAIL: authored events / full judgement / scoreTiming contracts are incomplete")
         print(f"GATE FAIL: {len(failed)} chart(s) failed; refusing to publish")
         for entry in failed[:20]:
             print("  -", entry)

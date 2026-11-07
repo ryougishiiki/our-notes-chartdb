@@ -74,6 +74,11 @@ def chart_gates(document: dict[str, Any], source_bytes: bytes | None = None, com
                 bpm_ok = False
                 break
     gates.append(_gate("timing.bpm", bpm_ok))
+    from .events import validate_contracts
+    if "judgements" in document or "scoreTiming" in document:
+        gates.append(_gate("events.contracts", validate_contracts(document)))
+    else:
+        gates.append(_gate("events.contracts", None, "canonical judgement timeline unavailable; diagnostic build only"))
 
     if source_bytes is not None:
         from .hashing import sha256_bytes

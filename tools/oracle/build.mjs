@@ -10,7 +10,7 @@ const vendorRoot = join(repoRoot, ".vendor");
 const lock = JSON.parse(readFileSync(join(here, "vendor.json"), "utf8"));
 
 function git(cwd, args) {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  return execFileSync("git", ["-c", `safe.directory=${cwd.replaceAll('\\', '/')}`, "-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
 for (const repo of lock.repositories) {
@@ -19,8 +19,13 @@ for (const repo of lock.repositories) {
     console.log(`vendoring ${repo.name} @ ${repo.commit.slice(0, 12)}`);
     execFileSync("git", ["clone", "--filter=blob:none", "--no-checkout", repo.url, destination], { stdio: "inherit" });
   }
-  git(destination, ["fetch", "--depth=1", "origin", repo.commit]);
-  git(destination, ["checkout", "--detach", repo.commit]);
+  if (git(destination, ["rev-parse", "HEAD"]) !== repo.commit) {
+    git(destination, ["fetch", "--depth=1", "origin", repo.commit]);
+    git(destination, ["checkout", "--detach", repo.commit]);
+  }
+  if (git(destination, ["status", "--porcelain", "--untracked-files=no"])) {
+    throw new Error(`Pinned parser has local changes: ${destination}`);
+  }
 }
 
 await build({

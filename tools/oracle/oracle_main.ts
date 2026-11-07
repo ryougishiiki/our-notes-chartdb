@@ -12,6 +12,14 @@ function main(): void {
   if (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b) raw = zlib.gunzipSync(raw);
   const root = parseScore(raw.toString("utf8"));
   const chart = buildChart(root);
+  const judgementGroups = new Map<number, [number, number]>();
+  for (const note of chart.notes) {
+    if (!note.judged) continue;
+    const group = judgementGroups.get(note.timeMs) ?? [0, 0];
+    group[0]++;
+    if (note.operateType !== 120 && note.operateType !== 121) group[1]++;
+    judgementGroups.set(note.timeMs, group);
+  }
   const judged = chart.notes.filter((note) => note.judged).length;
   const authoredJudge = chart.notes.filter(
     (note) => note.judged && note.operateType !== 120 && note.operateType !== 121,
@@ -36,6 +44,8 @@ function main(): void {
       lineCount: chart.lines.length,
       durationMs: chart.durationMs,
       operateTypeHistogram: histogram,
+      timeline: chart.timeline,
+      judgementGroups: [...judgementGroups].sort((a, b) => a[0] - b[0]).map(([time, counts]) => [time, ...counts]),
     }),
   );
 }

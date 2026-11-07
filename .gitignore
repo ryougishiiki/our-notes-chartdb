@@ -7,3 +7,5 @@ node_modules/
 tools/oracle/oracle.cjs
 __pycache__/
 *.pyc
+.venv*/
+.pytest_cache/

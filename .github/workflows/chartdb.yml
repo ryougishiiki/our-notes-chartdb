@@ -1,6 +1,15 @@
 name: chartdb
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tools/**'
+      - 'ci/**'
+      - '.github/workflows/chartdb.yml'
+      - 'requirements*.txt'
+      - 'package*.json'
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
